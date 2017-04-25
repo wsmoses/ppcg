@@ -1,0 +1,6 @@
+[submodule "isl"]
+	path = isl
+	url = git@gitlab.com:chandanreddy/isl.git
+[submodule "pet"]
+	path = pet
+	url = git@gitlab.com:chandanreddy/pet.git
