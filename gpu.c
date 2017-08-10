@@ -889,6 +889,42 @@ static __isl_give isl_map *group_tile(struct gpu_array_ref_group *group)
 	return tile;
 }
 
+struct find_pw_multi_aff_by_space_data {
+	isl_space *space;
+	isl_pw_multi_aff *pma;
+};
+
+static isl_stat find_pw_multi_aff_domain_space(__isl_take isl_pw_multi_aff *pma,
+	void *user)
+{
+	struct find_pw_multi_aff_by_space_data *data = user;
+	isl_space *space;
+	isl_bool r;
+
+	if (!data || !data->space)
+		goto error;
+
+	space = isl_pw_multi_aff_get_space(pma);
+	space = isl_space_domain(space);
+	r = isl_space_is_equal(space, data->space);
+	isl_space_free(space);
+	if (r < 0)
+		goto error;
+	if (r) {
+		if (data->pma)
+			goto error;
+		data->pma = pma;
+	} else {
+		isl_pw_multi_aff_free(pma);
+	}
+
+	return isl_stat_ok;
+
+error:
+	isl_pw_multi_aff_free(pma);
+	return isl_stat_error;
+}
+
 /* Given a mapping "iterator_map" from the AST schedule to a domain,
  * return the corresponding mapping from the AST schedule to
  * to the outer kernel->copy_schedule_dim dimensions of
@@ -907,13 +943,17 @@ static __isl_give isl_pw_multi_aff *compute_sched_to_copy(
 	isl_space *space;
 
 	space = isl_space_range(isl_pw_multi_aff_get_space(iterator_map));
-	space = isl_space_from_domain(space);
-	space = isl_space_add_dims(space, isl_dim_out,
-					kernel->copy_schedule_dim);
-
-	upma = isl_union_pw_multi_aff_copy(kernel->copy_schedule);
-	pma = isl_union_pw_multi_aff_extract_pw_multi_aff(upma, space);
-	isl_union_pw_multi_aff_free(upma);
+	struct find_pw_multi_aff_by_space_data data = { space, NULL };
+	if (isl_union_pw_multi_aff_foreach_pw_multi_aff(
+			kernel->copy_schedule,
+			&find_pw_multi_aff_domain_space,
+			&data) < 0) {
+		isl_pw_multi_aff_free(data.pma);
+		isl_space_free(space);
+		return isl_pw_multi_aff_free(iterator_map);
+	}
+	isl_space_free(space);
+	pma = data.pma;
 
 	return isl_pw_multi_aff_pullback_pw_multi_aff(pma, iterator_map);
 }
